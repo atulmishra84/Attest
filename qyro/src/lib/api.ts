@@ -31,6 +31,10 @@ export type AgentSummary = {
   name: string;
   source: string;
   status: string;
+  model?: string;
+  discoveredHow?: string;
+  identifiedWhere?: string;
+  discoveryStatus?: string;
   provider?: string;
   controls: ControlCounts;
   lastEvaluated: string;
@@ -93,7 +97,22 @@ export type ThreatFinding = {
   severity: string;
   summary: string;
   evidence: string;
+  blocked?: boolean;
   createdAt: string;
+};
+
+export type LedgerMetric = { kind: string; total: number; blocked: number };
+
+export type ThreatLedger = {
+  generatedAt: string;
+  interceptions: {
+    promptInjection: LedgerMetric;
+    jailbreak: LedgerMetric;
+    systemPrompt: LedgerMetric;
+  };
+  output: ThreatFinding[];
+  volume: Array<{ agentId: string; agentName: string; tokens: number; prior: number; spike: boolean }>;
+  alerts: ThreatFinding[];
 };
 
 export type Citation = {
@@ -130,6 +149,7 @@ export type CoverageRow = {
   violated: number;
   ineffective: number;
   other: number;
+  controls?: string[];
 };
 
 export type BlastRank = {

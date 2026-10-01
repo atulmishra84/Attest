@@ -27,6 +27,7 @@ export default function Settings() {
   const [createdSecret, setCreatedSecret] = useState('');
   const [runningJob, setRunningJob] = useState('');
   const [jobNote, setJobNote] = useState('');
+  const [feed, setFeed] = useState<{ status: string; connected: boolean; lastCount: number; lastSyncAt: string | null; lastError: string | null; configured: boolean } | null>(null);
 
   async function load() {
     setKeys(await api<ApiKeyRow[]>('/api/api-keys'));
@@ -36,6 +37,14 @@ export default function Settings() {
     load()
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load API keys'))
       .finally(() => setLoading(false));
+    const pullFeed = () => {
+      api<{ status: string; connected: boolean; lastCount: number; lastSyncAt: string | null; lastError: string | null; configured: boolean }>('/api/integration/visentra/status')
+        .then(setFeed)
+        .catch(() => setFeed(null));
+    };
+    pullFeed();
+    const timer = window.setInterval(pullFeed, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   async function createKey(event: FormEvent) {
@@ -89,6 +98,22 @@ export default function Settings() {
           <p className="lede">Integration keys for AgentRadar sync and telemetry. The secret is shown once.</p>
         </div>
       </div>
+
+      <section className="card" style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: 16, marginBottom: 8 }}>Visentra live feed</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Attest subscribes to Visentra’s agent stream and updates Agent Discovery as agents are found.
+        </p>
+        {feed?.configured ? (
+          <div className="stack">
+            <div><span className={`pill ${feed.connected ? 'good' : 'warn'}`}>{feed.connected ? 'Live' : feed.status}</span></div>
+            <div className="muted">{feed.lastCount} agents in the last sync{feed.lastSyncAt ? ` · ${formatWhen(feed.lastSyncAt)}` : ''}</div>
+            {feed.lastError && <div className="error-text">{feed.lastError}</div>}
+          </div>
+        ) : (
+          <div className="muted">Set VISENTRA_URL on the Attest API to start the live feed.</div>
+        )}
+      </section>
 
       {error && <div className="error-text">{error}</div>}
       {createdSecret && (

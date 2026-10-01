@@ -83,19 +83,11 @@ export default function Policies() {
     }
   }
 
-  if (loading) return <div>Loading...</div>;
-
   return (
-    <div>
-      <div className="header-row">
-        <div>
-          <h1 style={{ fontSize: '28px', marginBottom: '8px' }}>Governance Policies</h1>
-          <p style={{ color: 'var(--text-muted)' }}>
-            Frameworks and controls. Admins can change them. Auditors can review them.
-          </p>
-        </div>
-      </div>
-
+    <section>
+      <h2 className="section-title">Policies</h2>
+      <p className="muted">Frameworks, controls, and the Rego policy published to the engine. Admins can change them. Auditors can review them.</p>
+      {loading && <div className="skeleton" />}
       {error && <div className="error-text">{error}</div>}
 
       <div className="grid" style={{ gap: 16, marginBottom: 32 }}>
@@ -194,6 +186,6 @@ export default function Policies() {
           </form>
         </div>
       )}
-    </div>
+    </section>
   );
 }

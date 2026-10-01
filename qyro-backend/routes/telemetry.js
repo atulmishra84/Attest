@@ -2,10 +2,59 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireApiKey, requireAuth, requireRole } = require('../middleware/auth');
 const { evaluateAndStore } = require('../lib/assurance');
-const { inspectEvent, recordFindings, ensureThreatScan } = require('../lib/threats');
+const { inspectEvent, recordFindings, ensureThreatScan, noteVolume, ledgerReport } = require('../lib/threats');
+const { redactFields, privacyReport } = require('../lib/dlp');
+const { assessSafety, safetyReport } = require('../lib/safety');
+const { inspectIp, ipReport } = require('../lib/ip');
+const { assessOps, opsReport } = require('../lib/ops');
 const logger = require('../lib/logger');
 
 const router = express.Router();
+
+router.get('/privacy', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
+  try {
+    res.json(await privacyReport());
+  } catch (err) {
+    logger.error({ err: err.message }, 'privacy report failed');
+    res.status(500).json({ error: 'Failed to load privacy monitoring' });
+  }
+});
+
+router.get('/safety', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
+  try {
+    res.json(await safetyReport());
+  } catch (err) {
+    logger.error({ err: err.message }, 'safety report failed');
+    res.status(500).json({ error: 'Failed to load safety guardrails' });
+  }
+});
+
+router.get('/ip', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
+  try {
+    res.json(await ipReport());
+  } catch (err) {
+    logger.error({ err: err.message }, 'ip report failed');
+    res.status(500).json({ error: 'Failed to load IP protection' });
+  }
+});
+
+router.get('/ops', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
+  try {
+    res.json(await opsReport());
+  } catch (err) {
+    logger.error({ err: err.message }, 'ops report failed');
+    res.status(500).json({ error: 'Failed to load model health' });
+  }
+});
+
+router.get('/ledger', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
+  try {
+    res.json(await ledgerReport());
+  } catch (err) {
+    logger.error({ err: err.message }, 'threat ledger failed');
+    res.status(500).json({ error: 'Failed to load the threat ledger' });
+  }
+});
 
 router.get('/threats', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
   const kind = typeof req.query.kind === 'string' ? req.query.kind : '';
@@ -97,33 +146,55 @@ router.post('/events', requireApiKey, async (req, res) => {
     }
 
     const quarantined = agent.status === 'Quarantined';
-    const rawPayload = {
+    const inbound = {
       ...(event.raw_payload || {}),
       prompt: event.prompt || event.raw_payload?.prompt || null,
       tool: event.tool || event.raw_payload?.tool || null,
       tool_input: event.tool_input || event.raw_payload?.tool_input || null,
+      output: event.output || event.raw_payload?.output || null,
+      flags: event.flags || event.output_flags || event.raw_payload?.flags || null,
+      tokens: event.tokens ?? event.token_count ?? event.usage?.total_tokens ?? event.raw_payload?.tokens ?? null,
+      api_key_name: event.api_key_name || event.key_name || null,
+      key_prefix: event.api_key ? String(event.api_key).slice(0, 8) : (event.key_prefix || null),
+      resource: event.resource || null,
+    };
+    const guardInput = { ...event, ...inbound };
+    const safety = assessSafety(guardInput);
+    const ipFindings = inspectIp(guardInput);
+    const ops = assessOps(guardInput);
+    const identity = await prisma.agentIdentity.findUnique({ where: { agentId: agent.id } });
+    const threats = inspectEvent({
+      prompt: inbound.prompt,
+      tool: inbound.tool,
+      toolInput: inbound.tool_input,
+      output: inbound.output,
+      flags: inbound.flags,
+      operation: event.operation,
+      resource: event.resource,
+      capability: identity?.payload,
+    });
+    threats.push(...safety.findings, ...ipFindings, ...ops.findings);
+    const rawPayload = redactFields(inbound).fields;
+    for (const key of ['sources', 'context', 'documents', 'reference', 'copyrighted_text', 'prior_art']) {
+      if (rawPayload[key]) rawPayload[key] = '[SOURCE]';
+    }
+    rawPayload.guardrails = {
+      ...safety.metrics,
+      ...ops.metrics,
     };
     const created = await prisma.runtimeEvent.create({
       data: {
         agentId: event.agent_id,
         eventType: event.event_type || 'API_CALL',
         operation: event.operation,
-        resource: event.resource,
+        resource: rawPayload.resource || event.resource,
         timestamp: event.timestamp ? new Date(event.timestamp) : new Date(),
         rawPayload,
       },
     });
-
-    const identity = await prisma.agentIdentity.findUnique({ where: { agentId: agent.id } });
-    const threats = inspectEvent({
-      prompt: rawPayload.prompt,
-      tool: rawPayload.tool,
-      toolInput: rawPayload.tool_input,
-      operation: event.operation,
-      resource: event.resource,
-      capability: identity?.payload,
-    });
     if (threats.length) await recordFindings(created.id, agent.id, threats);
+    const spike = await noteVolume(agent.id, created.id);
+    if (spike) threats.push(spike);
 
     const stored = await evaluateAndStore(event.agent_id, {
       operation: event.operation || '',

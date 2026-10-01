@@ -47,6 +47,10 @@ model Agent {
   name            String
   discoverySource String
   status          String          @default("Active")
+  model           String?
+  discoveredHow   String?
+  identifiedWhere String?
+  discoveryStatus String?
   owner           String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

@@ -7,9 +7,12 @@ test('admin can open the assurance console', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Control Assurance' })).toBeVisible();
   await page.getByRole('link', { name: 'Agent Discovery' }).click();
   await expect(page.getByRole('heading', { name: 'Agent Discovery' })).toBeVisible();
-  await page.getByRole('link', { name: 'Control Assurance' }).click();
-  await page.getByRole('table').getByText('Clinical Document Analyzer').click();
-  await expect(page.getByText('patient.update (EXCESS)')).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Name' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'LLM model' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Discovered' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Identified' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible();
+  await expect(page.getByRole('table').getByText('Clinical Document Analyzer')).toHaveCount(0);
   await page.getByRole('link', { name: 'Runtime Behavior' }).click();
   await expect(page.getByRole('heading', { name: 'Runtime Behavior' })).toBeVisible();
 });

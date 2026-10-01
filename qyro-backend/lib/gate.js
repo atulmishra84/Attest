@@ -1,7 +1,11 @@
 const prisma = require('./prisma');
 const { evaluate } = require('./opa');
 const { evaluateAndStore, loadEvaluationContext } = require('./assurance');
-const { inspectEvent, recordFindings } = require('./threats');
+const { inspectEvent, recordFindings, noteVolume, BLOCKING_KINDS } = require('./threats');
+const { assessSafety, SAFETY_BLOCKING } = require('./safety');
+const { inspectIp, IP_BLOCKING } = require('./ip');
+const { assessOps } = require('./ops');
+const { redactFields } = require('./dlp');
 const { publish } = require('./stream');
 
 function controlView(decisions) {
@@ -68,17 +72,57 @@ async function decide(agentId, request) {
     capability: context.capability,
     controls: context.controls,
   });
+  const guardInput = {
+    prompt,
+    tool,
+    tool_input: request.tool_input,
+    output: request.output,
+    flags: request.flags || request.output_flags,
+    operation,
+    resource,
+    sources: request.sources,
+    context: request.context,
+    documents: request.documents,
+    groundedness: request.groundedness,
+    hallucination_score: request.hallucination_score,
+    safety_scores: request.safety_scores,
+    bias_score: request.bias_score,
+    bias_attribute: request.bias_attribute,
+    workflow: request.workflow,
+    domain: request.domain,
+    reference: request.reference,
+    copyright_score: request.copyright_score,
+    trademarks: request.trademarks,
+    model: request.model,
+    ttft_ms: request.ttft_ms,
+    latency_ms: request.latency_ms,
+    scan_ms: request.scan_ms,
+    eval_score: request.eval_score,
+    primary_model: request.primary_model,
+    routed_to: request.routed_to,
+    fallback_model: request.fallback_model,
+    provider_error: request.provider_error,
+  };
   const threats = inspectEvent({
     prompt,
     tool,
     toolInput: request.tool_input,
+    output: request.output,
+    flags: request.flags || request.output_flags,
     operation,
     resource,
     capability: context.capability,
   });
+  const safety = assessSafety(guardInput);
+  const ipFindings = inspectIp(guardInput);
+  const ops = assessOps(guardInput);
+  const extra = [...safety.findings, ...ipFindings, ...ops.findings];
   const violating = decisions.filter((decision) => decision.state === 'VIOLATED' || decision.state === 'BLOCKED_VIOLATION');
-  const injection = threats.some((finding) => finding.kind === 'PROMPT_INJECTION');
-  const block = violating.length > 0 || injection;
+  const blocking = [
+    ...threats.filter((finding) => BLOCKING_KINDS.has(finding.kind)),
+    ...extra.filter((finding) => SAFETY_BLOCKING.has(finding.kind) || IP_BLOCKING.has(finding.kind)),
+  ];
+  const block = violating.length > 0 || blocking.length > 0;
 
   if (block) {
     await evaluateAndStore(agentId, {
@@ -89,7 +133,7 @@ async function decide(agentId, request) {
     });
   }
 
-  if (threats.length) {
+  if (threats.length || extra.length) {
     const event = await prisma.runtimeEvent.create({
       data: {
         agentId,
@@ -97,17 +141,28 @@ async function decide(agentId, request) {
         operation: operation || null,
         resource: resource || null,
         timestamp: new Date(),
-        rawPayload: { prompt: prompt || null, tool: tool || null, tool_input: request.tool_input || null, gate: true },
+        rawPayload: {
+          ...redactFields({
+            prompt: prompt || null,
+            tool: tool || null,
+            tool_input: request.tool_input || null,
+            output: request.output || null,
+            resource: resource || null,
+          }).fields,
+          flags: request.flags || request.output_flags || null,
+          tokens: request.tokens ?? request.token_count ?? null,
+          gate: true,
+          guardrails: { ...safety.metrics, ...ops.metrics },
+        },
       },
     });
-    await recordFindings(event.id, agentId, threats);
+    await recordFindings(event.id, agentId, [...threats, ...extra]);
+    await noteVolume(agentId, event.id);
   }
 
-  const reason = injection
-    ? 'Prompt tries to override the agent instructions.'
-    : violating.length
-      ? violating.map((decision) => `${decision.control_id} would be ${decision.state.toLowerCase()}: ${decision.evidence?.message || decision.state}`).join(' ')
-      : 'Controls hold for this call.';
+  const controlReason = violating.map((decision) => `${decision.control_id} would be ${decision.state.toLowerCase()}: ${decision.evidence?.message || decision.state}`).join(' ');
+  const reason = [blocking.map((finding) => finding.summary).join(' '), controlReason].filter(Boolean).join(' ')
+    || 'Controls hold for this call.';
 
   return saveDecision(agentId, {
     operation,

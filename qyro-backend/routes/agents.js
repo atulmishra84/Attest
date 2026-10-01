@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
+const { ingestAgents } = require('../lib/discoveryIngest');
 const { requireAuth, requireRole, requireApiKey } = require('../middleware/auth');
 const { latestCapability, refreshCapability } = require('../lib/assurance');
 const { ensureThreatScan } = require('../lib/threats');
@@ -60,7 +61,7 @@ function matchesPosture(agent, posture) {
  */
 router.get('/', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
-  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 20));
+  const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 20));
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const posture = typeof req.query.posture === 'string' ? req.query.posture : 'all';
   const provider = typeof req.query.provider === 'string' ? req.query.provider.trim().toLowerCase() : '';
@@ -70,6 +71,9 @@ router.get('/', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) =
       OR: [
         { name: { contains: q, mode: 'insensitive' } },
         { discoverySource: { contains: q, mode: 'insensitive' } },
+        { model: { contains: q, mode: 'insensitive' } },
+        { discoveredHow: { contains: q, mode: 'insensitive' } },
+        { identifiedWhere: { contains: q, mode: 'insensitive' } },
       ],
     } : {}),
     ...(provider && provider !== 'all' ? { identity: { is: { provider } } } : {}),
@@ -94,6 +98,10 @@ router.get('/', requireAuth, requireRole('ADMIN', 'AUDITOR'), async (req, res) =
         name: agent.name,
         source: agent.discoverySource,
         status: agent.status,
+        model: agent.model || '',
+        discoveredHow: agent.discoveredHow || '',
+        identifiedWhere: agent.identifiedWhere || '',
+        discoveryStatus: agent.discoveryStatus || '',
         provider: agent.identity?.provider || 'custom',
         controls: counts,
         lastEvaluated: evaluatedAt || agent.updatedAt,
@@ -281,29 +289,11 @@ router.post('/sync', requireApiKey, async (req, res) => {
   }
 
   try {
-    const upserts = agents.map((a) =>
-      prisma.agent.upsert({
-        where: { id: a.id },
-        update: {
-          name: a.name,
-          discoverySource: a.source,
-          status: a.status || 'Active',
-          deletedAt: null,
-          ...(a.owner ? { owner: a.owner } : {}),
-        },
-        create: { id: a.id, name: a.name, discoverySource: a.source, status: a.status || 'Active', owner: a.owner || null },
-      })
-    );
-    await prisma.$transaction(upserts);
-    for (const agent of agents) {
-      if (!agent.identity || !agent.identity.provider) continue;
-      await prisma.agentIdentity.upsert({
-        where: { agentId: agent.id },
-        update: { provider: agent.identity.provider, payload: agent.identity.payload || {} },
-        create: { agentId: agent.id, provider: agent.identity.provider, payload: agent.identity.payload || {} },
-      });
-    }
-    res.json({ status: 'success', message: `Synced ${agents.length} agents into Attest.` });
+    const result = await ingestAgents(agents.map((agent) => ({
+      ...agent,
+      source: agent.source,
+    })));
+    res.json({ status: 'success', message: `Synced ${result.synced} agents into Attest.` });
   } catch (err) {
     console.error('Sync error:', err);
     res.status(500).json({ error: 'Failed to sync agents' });

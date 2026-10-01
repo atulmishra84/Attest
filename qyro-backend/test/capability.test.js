@@ -4,7 +4,7 @@ const { resolveCapability } = require('../lib/capability/resolve');
 
 test('capability resolver builds a chain from a stored identity', () => {
   const graph = resolveCapability(
-    { name: 'Clinical Document Analyzer' },
+    { name: 'Document agent' },
     {
       provider: 'aws',
       payload: {
@@ -20,7 +20,7 @@ test('capability resolver builds a chain from a stored identity', () => {
 
   assert.equal(graph.provider, 'aws');
   assert.equal(graph.source, 'aws-document');
-  assert.equal(graph.nodes[0].data.label, 'Clinical Document Analyzer');
+  assert.equal(graph.nodes[0].data.label, 'Document agent');
   assert.equal(graph.nodes.at(-1).data.label, 'patient.update (EXCESS)');
   assert.equal(graph.edges.length, 4);
 });

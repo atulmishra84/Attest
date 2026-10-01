@@ -3,6 +3,8 @@ const prisma = require('../lib/prisma');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { citationsFor, citationLabel } = require('../lib/citations');
 const { ensureThreatScan } = require('../lib/threats');
+const { governanceReport } = require('../lib/governance');
+const { agenticReport } = require('../lib/agentic');
 
 const router = express.Router();
 
@@ -11,6 +13,11 @@ router.use(requireAuth, requireRole('ADMIN', 'AUDITOR'));
 router.get('/coverage', async (req, res) => {
   const coverage = await coverageReport();
   res.json(coverage);
+});
+
+router.get('/governance', async (req, res) => {
+  const [governance, agentic] = await Promise.all([governanceReport(), agenticReport()]);
+  res.json({ ...governance, agentic });
 });
 
 router.get('/evidence', async (req, res) => {
@@ -95,9 +102,11 @@ async function coverageReport() {
           violated: 0,
           ineffective: 0,
           other: 0,
+          controls: [],
         });
       }
       const bucket = groups.get(key);
+      if (!bucket.controls.includes(result.controlId)) bucket.controls.push(result.controlId);
       if (result.state === 'EFFECTIVE') bucket.effective += 1;
       else if (result.state === 'VIOLATED' || result.state === 'BLOCKED_VIOLATION') bucket.violated += 1;
       else if (result.state === 'INEFFECTIVE') bucket.ineffective += 1;

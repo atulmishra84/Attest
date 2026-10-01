@@ -22,6 +22,8 @@ const alertRoutes = require('./routes/alerts');
 const decisionRoutes = require('./routes/decisions');
 const streamRoutes = require('./routes/stream');
 const reportRoutes = require('./routes/reports');
+const visentraRoutes = require('./routes/visentra');
+const { startVisentraFeed } = require('./lib/visentraLive');
 
 function createApp() {
   const app = express();
@@ -62,6 +64,7 @@ function createApp() {
   app.use('/api/decisions', decisionRoutes);
   app.use('/api/stream', streamRoutes);
   app.use('/api/reports', reportRoutes);
+  app.use('/api/integration/visentra', visentraRoutes);
 
   app.get('/api/health', async (req, res) => {
     const report = await healthReport();
@@ -99,6 +102,7 @@ async function start() {
     } catch (err) {
       logger.error({ err: err.message }, 'startup task failed');
     }
+    startVisentraFeed();
     logger.info({ port }, 'Attest assurance engine listening');
   });
 }

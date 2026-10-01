@@ -5,7 +5,6 @@
   "scripts": {
     "start": "node index.js",
     "seed": "node seed.js",
-    "sync": "node mock_sync.js",
     "test": "opa test policies && node --test test/*.js",
     "load": "node scripts/load.js"
   },
