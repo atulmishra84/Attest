@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: qyro
+    ports:
+      - "5432:5432"
+    volumes:
+      - qyro-pg:/var/lib/postgresql/data
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1-p0
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/qyro
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "20"
+    ports:
+      - "6432:5432"
+    depends_on:
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  opa:
+    image: openpolicyagent/opa:1.6.0-static
+    command: ["run", "--server", "--addr", "0.0.0.0:8181"]
+    ports:
+      - "8181:8181"
+
+  backend:
+    build: ./qyro-backend
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer:5432/qyro
+      REDIS_URL: redis://redis:6379
+      OPA_URL: http://opa:8181
+      JWT_SECRET: qyro-compose-secret-use-a-vault-outside-dev
+      INTEGRATION_API_KEY: qyro-compose-integration-key
+      NODE_ENV: production
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - pgbouncer
+      - redis
+      - opa
+
+  frontend:
+    build: ./qyro
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  qyro-pg:

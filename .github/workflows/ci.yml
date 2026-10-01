@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: qyro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/qyro
+      JWT_SECRET: ci-test-secret
+      INTEGRATION_API_KEY: ci-integration-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            qyro-backend/package-lock.json
+            qyro/package-lock.json
+      - name: Install OPA
+        run: |
+          curl -L -o /tmp/opa https://github.com/open-policy-agent/opa/releases/download/v1.6.0/opa_linux_amd64_static
+          chmod +x /tmp/opa
+          sudo mv /tmp/opa /usr/local/bin/opa
+      - name: Backend tests
+        working-directory: qyro-backend
+        run: |
+          npm ci
+          npx prisma migrate deploy
+          npm run seed
+          npm test
+      - name: Frontend build
+        working-directory: qyro
+        run: |
+          npm ci
+          npm run build

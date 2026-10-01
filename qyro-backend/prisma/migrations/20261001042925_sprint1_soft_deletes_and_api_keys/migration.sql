@@ -1,0 +1,25 @@
+-- AlterTable
+ALTER TABLE "Agent" ADD COLUMN     "deletedAt" TIMESTAMP(3);
+
+-- AlterTable
+ALTER TABLE "ApiKey" ADD COLUMN     "deletedAt" TIMESTAMP(3),
+ADD COLUMN     "keyPrefix" TEXT NOT NULL DEFAULT '';
+
+-- AlterTable
+ALTER TABLE "Control" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "deletedAt" TIMESTAMP(3),
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- AlterTable
+ALTER TABLE "ControlResult" ADD COLUMN     "deletedAt" TIMESTAMP(3);
+
+-- AlterTable
+ALTER TABLE "Framework" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "deletedAt" TIMESTAMP(3),
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- AlterTable
+ALTER TABLE "RuntimeEvent" ADD COLUMN     "deletedAt" TIMESTAMP(3);
+
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "deletedAt" TIMESTAMP(3);

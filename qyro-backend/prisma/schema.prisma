@@ -1,0 +1,211 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Users & Auth ────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  AUDITOR
+  INTEGRATION
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role      @default(AUDITOR)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  keyHash    String    @unique
+  keyPrefix  String    @default("")
+  role       Role      @default(INTEGRATION)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+}
+
+// ─── Agent Discovery ─────────────────────────────────────────────────────────
+
+model Agent {
+  id              String          @id
+  name            String
+  discoverySource String
+  status          String          @default("Active")
+  owner           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+  controlResults  ControlResult[]
+  runtimeEvents   RuntimeEvent[]
+  identity        AgentIdentity?
+  snapshots       CapabilitySnapshot[]
+  alerts          DriftAlert[]
+  threats         ThreatFinding[]
+  decisions       ActionDecision[]
+}
+
+// ─── Governance Frameworks & Controls ────────────────────────────────────────
+
+model Framework {
+  id          String    @id
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt @default(now())
+  deletedAt   DateTime?
+  controls    Control[]
+  policies    Policy[]
+}
+
+model Control {
+  id              String          @id
+  frameworkId     String
+  framework       Framework       @relation(fields: [frameworkId], references: [id])
+  name            String
+  intentDesc      String?
+  requirementType String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt @default(now())
+  deletedAt       DateTime?
+  controlResults  ControlResult[]
+}
+
+// ─── Assurance Engine ────────────────────────────────────────────────────────
+
+enum ControlState {
+  EFFECTIVE
+  INEFFECTIVE
+  VIOLATED
+  BLOCKED_VIOLATION
+  UNKNOWN
+  NOT_TESTED
+}
+
+model ControlResult {
+  id              Int          @id @default(autoincrement())
+  agentId         String
+  agent           Agent        @relation(fields: [agentId], references: [id])
+  controlId       String
+  control         Control      @relation(fields: [controlId], references: [id])
+  state           ControlState
+  evidencePayload Json?
+  evaluatedAt     DateTime     @default(now())
+  deletedAt       DateTime?
+
+  @@index([agentId])
+  @@index([agentId, controlId])
+  @@index([state])
+}
+
+// ─── Runtime Telemetry ───────────────────────────────────────────────────────
+
+model RuntimeEvent {
+  id         Int      @id @default(autoincrement())
+  agentId    String
+  agent      Agent    @relation(fields: [agentId], references: [id])
+  eventType  String
+  operation  String?
+  resource   String?
+  timestamp  DateTime
+  rawPayload Json?
+  deletedAt  DateTime?
+
+  @@index([agentId])
+  @@index([timestamp])
+}
+
+model Policy {
+  id          String    @id @default(cuid())
+  frameworkId String
+  framework   Framework @relation(fields: [frameworkId], references: [id])
+  name        String
+  rego        String
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt @default(now())
+  deletedAt   DateTime?
+}
+
+model AgentIdentity {
+  id        String   @id @default(cuid())
+  agentId   String   @unique
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  provider  String
+  payload   Json
+  updatedAt DateTime @updatedAt @default(now())
+}
+
+model CapabilitySnapshot {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  provider  String
+  nodes     Json
+  edges     Json
+  source    String
+  createdAt DateTime @default(now())
+
+  @@index([agentId, createdAt])
+}
+
+model ActionDecision {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  operation String?
+  resource  String?
+  tool      String?
+  decision  String
+  reason    String
+  controls  Json
+  createdAt DateTime @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+}
+
+model ThreatFinding {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  eventId   Int?
+  kind      String
+  severity  String
+  summary   String
+  evidence  String
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, kind])
+  @@index([createdAt])
+  @@index([agentId])
+}
+
+model DriftAlert {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  controlId String?
+  fromState String?
+  toState   String
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([agentId])
+}
